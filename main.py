@@ -159,15 +159,18 @@ try:
 
 
     # Step 3: Set date filter to yesterday
+# Step 3: Set date filter to yesterday
     date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
     date_input1 = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneStart")
     yesterday = "01/01/2020"
     date_input.clear()
+    date_input1.clear()
     for char in yesterday:
         date_input.send_keys(char)
         time.sleep(random.uniform(0.05, 0.15))
         date_input1.send_keys(char)
         time.sleep(random.uniform(0.05, 0.15))
+
         
     search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_button)

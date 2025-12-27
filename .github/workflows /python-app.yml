@@ -1,9 +1,8 @@
 name: Run Tender Bot
 
 on:
-  # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
   schedule:
-   - cron: "0 3 * * *"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -27,20 +26,25 @@ jobs:
 
       - name: Install System Dependencies and Browser
         run: |
-          # Install all necessary tools for file processing
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara tesseract-ocr-eng poppler-utils antiword
-          
-          # Install Chrome browser and matching ChromeDriver
-          sudo apt-get install -y wget unzip
+          sudo apt-get install -y \
+            tesseract-ocr \
+            tesseract-ocr-fra \
+            tesseract-ocr-ara \
+            tesseract-ocr-eng \
+            poppler-utils \
+            antiword \
+            wget \
+            unzip
+
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
-          DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+
+          DRIVER_VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE)
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip
           unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
       - name: Install Python dependencies
         run: |
@@ -49,22 +53,25 @@ jobs:
 
       - name: Run Tender Bot
         run: python main.py
-        
-        - name: Upload Excel file
+
+      # ✅ EXCEL DOWNLOADABLE FILE
+      - name: Upload Excel file
         uses: actions/upload-artifact@v4
         with:
           name: marches-publics-excel
           path: marches_publics_services_2020_to_now.xlsx
+          if-no-files-found: error
 
-      - name: Upload summary CSV as artifact
-        if: always() # Always run this step to capture the output file
+      # Optional CSV
+      - name: Upload summary CSV
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender-results-summary
-          # *** CRITICAL FIX: The python script saves a 'summary' file ***
           path: tender_results_summary.csv
-          if-no-files-found: ignore # Don't fail if the script creates no file
+          if-no-files-found: ignore
 
+      # Debug on failure
       - name: Upload debug files on failure
         if: failure()
         uses: actions/upload-artifact@v4

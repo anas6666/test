@@ -4,10 +4,8 @@ import re
 import shutil
 import zipfile
 import subprocess
-import traceback
 import unicodedata
 import random
-import requests
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -34,7 +32,7 @@ download_dir = os.path.join(os.getcwd(), "downloads_temp")
 os.makedirs(download_dir, exist_ok=True)
 
 options = webdriver.ChromeOptions()
-options.add_argument("--headless=chrome")  # more stable on CI
+options.add_argument("--headless=new")  # headless mode
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
@@ -72,7 +70,6 @@ def clean_extracted_text(text):
     pretty = re.sub(r"\n{3,}", "\n\n", pretty)
     return pretty.strip()
 
-
 def extract_text_from_pdf(file_path):
     text = ""
     try:
@@ -92,7 +89,6 @@ def extract_text_from_pdf(file_path):
             print(f"⚠️ OCR failed for {file_path}: {e}")
     return clean_extracted_text(text)
 
-
 def extract_text_from_docx(file_path):
     try:
         doc = docx.Document(file_path)
@@ -100,7 +96,6 @@ def extract_text_from_docx(file_path):
         return clean_extracted_text(text)
     except Exception:
         return ""
-
 
 def extract_text_from_doc(file_path):
     try:
@@ -111,7 +106,6 @@ def extract_text_from_doc(file_path):
     except Exception as e:
         print(f"⚠️ Antiword failed for {file_path}: {e}")
         return ""
-
 
 def extract_from_zip(file_path):
     try:
@@ -124,7 +118,6 @@ def extract_from_zip(file_path):
         print(f"⚠️ Failed to unzip {file_path}: {e}")
         return None
 
-
 def clear_download_directory():
     for item in os.listdir(download_dir):
         path = os.path.join(download_dir, item)
@@ -135,7 +128,6 @@ def clear_download_directory():
                 shutil.rmtree(path)
         except Exception as e:
             print(f"⚠️ Failed to delete {path}: {e}")
-
 
 def wait_for_download_complete(timeout=90):
     seconds = 0
@@ -152,7 +144,7 @@ def wait_for_download_complete(timeout=90):
 # -----------------------------
 # MAIN SCRIPT
 # -----------------------------
-all_processed_tenders = []
+data = []
 
 try:
     print("\n--- Starting scraping ---")
@@ -165,21 +157,18 @@ try:
     wait.until(lambda d: len(d.window_handles) > 1)
     driver.switch_to.window(driver.window_handles[-1])
 
-    # Step 2: Select Services checkbox and validate
-    checkbox = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_repeaterCategorie_ctl2_idCategorie")))
-    checkbox.click()
-    validate_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
-    validate_btn.click()
-    driver.switch_to.window(driver.window_handles[0])
-    print("✅ Services selected.")
 
     # Step 3: Set date filter to yesterday
     date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+    date_input1 = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneStart")
+    yesterday = "01/01/2020"
     date_input.clear()
     for char in yesterday:
         date_input.send_keys(char)
         time.sleep(random.uniform(0.05, 0.15))
+        date_input1.send_keys(char)
+        time.sleep(random.uniform(0.05, 0.15))
+        
     search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_button)
     time.sleep(0.8)
@@ -187,35 +176,53 @@ try:
     time.sleep(2)
 
     # Step 4: Set results per page
-    wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
-    Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
-    time.sleep(2)
+    try:
+        Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
+        time.sleep(2)
+    except Exception as e:
+        print(f"Could not set page size: {e}")
 
-    # Step 5: Scrape table
-    rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
-    data = []
-    for row in rows:
+    # Step 5: Scrape table while clicking next
+    while True:
         try:
-            ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
-            objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
-            buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
-            lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
-            deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
-            first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
-            data.append({
-                "reference": ref,
-                "objet": objet,
-                "acheteur": buyer,
-                "lieux_execution": lieux,
-                "date_limite": deadline,
-                "first_button_url": first_button
-            })
-        except Exception as e:
-            print(f"⚠️ Error extracting row: {e}")
+            rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+            for row in rows:
+                try:
+                    ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+                    objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
+                    buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
+                    lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
+                    deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
+                    first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
 
+                    data.append({
+                        "reference": ref,
+                        "objet": objet,
+                        "acheteur": buyer,
+                        "lieux_execution": lieux,
+                        "date_limite": deadline,
+                        "first_button_url": first_button
+                    })
+                except Exception as e:
+                    print(f"Error extracting row: {e}")
+        except Exception as e:
+            print(f"Error scraping table: {e}")
+
+        # Click next page
+        try:
+            next_btn = wait.until(
+                EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_resultSearch_PagerTop_ctl2"))
+            )
+            next_btn.click()
+            time.sleep(2)
+        except (TimeoutException, ElementClickInterceptedException, NoSuchElementException):
+            print("Next button not clickable or not found, ending loop.")
+            break
+
+    # Convert to DataFrame and save
     df = pd.DataFrame(data)
-        # Save Excel
-    output_file = "marches_publics_services_2020_to_now.xlsx"
+    print(f"Scraped {len(df)} rows.")
+    output_file = "marches_publics_services.xlsx"
     df.to_excel(output_file, index=False)
     print(f"✅ Excel saved: {output_file}")
 
@@ -228,6 +235,3 @@ finally:
         driver.quit()
     except:
         pass
-
-
-    

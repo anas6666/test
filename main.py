@@ -214,5 +214,20 @@ try:
             print(f"⚠️ Error extracting row: {e}")
 
     df = pd.DataFrame(data)
+        # Save Excel
+    output_file = "marches_publics_services_2020_to_now.xlsx"
+    df.to_excel(output_file, index=False)
+    print(f"✅ Excel saved: {output_file}")
+
+except Exception as e:
+    print("❌ Error during execution:")
+    print(e)
+
+finally:
+    try:
+        driver.quit()
+    except:
+        pass
+
 
     

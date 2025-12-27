@@ -151,14 +151,8 @@ try:
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
     time.sleep(2)
 
-    # Step 1: Open "Définir" popup
-    define_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_domaineActivite_linkDisplay")))
-    define_btn.click()
-    wait.until(lambda d: len(d.window_handles) > 1)
-    driver.switch_to.window(driver.window_handles[-1])
 
 
-    # Step 3: Set date filter to yesterday
 # Step 3: Set date filter to yesterday
     date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
     date_input1 = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneStart")

@@ -49,6 +49,12 @@ jobs:
 
       - name: Run Tender Bot
         run: python main.py
+        
+        - name: Upload Excel file
+        uses: actions/upload-artifact@v4
+        with:
+          name: marches-publics-excel
+          path: marches_publics_services_2020_to_now.xlsx
 
       - name: Upload summary CSV as artifact
         if: always() # Always run this step to capture the output file

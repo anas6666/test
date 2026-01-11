@@ -7,7 +7,6 @@ import subprocess
 import traceback
 import unicodedata
 import random
-import requests
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -24,7 +23,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 # -----------------------------
 # CONFIGURATION
@@ -34,7 +33,7 @@ download_dir = os.path.join(os.getcwd(), "downloads_temp")
 os.makedirs(download_dir, exist_ok=True)
 
 options = webdriver.ChromeOptions()
-options.add_argument("--headless=chrome")  # more stable on CI
+options.add_argument("--headless=chrome")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
@@ -72,7 +71,6 @@ def clean_extracted_text(text):
     pretty = re.sub(r"\n{3,}", "\n\n", pretty)
     return pretty.strip()
 
-
 def extract_text_from_pdf(file_path):
     text = ""
     try:
@@ -92,7 +90,6 @@ def extract_text_from_pdf(file_path):
             print(f"⚠️ OCR failed for {file_path}: {e}")
     return clean_extracted_text(text)
 
-
 def extract_text_from_docx(file_path):
     try:
         doc = docx.Document(file_path)
@@ -100,7 +97,6 @@ def extract_text_from_docx(file_path):
         return clean_extracted_text(text)
     except Exception:
         return ""
-
 
 def extract_text_from_doc(file_path):
     try:
@@ -111,7 +107,6 @@ def extract_text_from_doc(file_path):
     except Exception as e:
         print(f"⚠️ Antiword failed for {file_path}: {e}")
         return ""
-
 
 def extract_from_zip(file_path):
     try:
@@ -124,7 +119,6 @@ def extract_from_zip(file_path):
         print(f"⚠️ Failed to unzip {file_path}: {e}")
         return None
 
-
 def clear_download_directory():
     for item in os.listdir(download_dir):
         path = os.path.join(download_dir, item)
@@ -136,12 +130,7 @@ def clear_download_directory():
         except Exception as e:
             print(f"⚠️ Failed to delete {path}: {e}")
 
-
 def wait_for_download_complete(timeout=120):
-    """
-    Waits for Chrome temp / incomplete files to finish downloading.
-    Returns the final downloaded file path.
-    """
     elapsed = 0
     stable_count = 0
     last_size = -1
@@ -150,7 +139,6 @@ def wait_for_download_complete(timeout=120):
         files = [f for f in os.listdir(download_dir) 
                  if not f.endswith(".crdownload") and not f.startswith(".com.google.Chrome.")]
         if files:
-            # Take first candidate
             file_path = os.path.join(download_dir, files[0])
             size = os.path.getsize(file_path)
             if size == last_size:
@@ -159,7 +147,6 @@ def wait_for_download_complete(timeout=120):
                 stable_count = 0
                 last_size = size
 
-            # If size hasn’t changed for 3 consecutive checks (~3 sec)
             if stable_count >= 3:
                 return file_path
         else:
@@ -171,7 +158,6 @@ def wait_for_download_complete(timeout=120):
 
     print("⚠️ Timeout waiting for download to finish.")
     return None
-
 
 # -----------------------------
 # MAIN SCRIPT
@@ -254,7 +240,6 @@ try:
         link = row['first_button_url']
         print(f"\n🔗 Processing tender {idx+1}/{len(df)}: {link}")
 
-        # Safe navigation with retry
         try:
             driver.get(link)
         except TimeoutException:
@@ -314,6 +299,7 @@ try:
                 for fpath in file_paths:
                     fname = os.path.basename(fpath)
                     ext = os.path.splitext(fname)[1].lower()
+                    text = ""
                 
                     if "cps" in fname.lower():
                         print(f"SKIPPED CPS: {fname}")
@@ -329,59 +315,44 @@ try:
                         print(f"SKIPPED UNSUPPORTED: {fname}")
                         continue
                 
-                    # ✅ THIS IS THE CORRECT PLACE
                     print(f"EXTRACTED {len(text)} chars from {fname}")
                 
                     if text.strip():
                         texts.append(text)
                 
                 merged_text = "\n\n".join(texts) or "No relevant text extracted"
-
             else:
                 print("⚠️ Download failed or timed out.")
-                print(f"EXTRACTED {len(text)} chars from {fname}")
 
         except Exception as e:
             print(f"⚠️ Error processing tender {link}: {e}")
             traceback.print_exc()
 
-        # -----------------------------
-        # N8N WEBHOOK - OPTIMIZED FOR SLOW OLLAMA
-        # -----------------------------
+        # Add data to result list
         tender_payload = row.to_dict()
         tender_payload["merged_text"] = merged_text
-
-        webhook = os.getenv("N8N_WEBHOOK_URL")
-        
-        if webhook:
-            print(f"  - 📤 Sending to n8n (Payload len: {len(merged_text)})...")
-            try:
-                # Increased timeout to 600s (10 minutes) for slow AI models
-                resp = requests.post(webhook, json=tender_payload, timeout=1200)
-                
-                if resp.status_code == 200:
-                    print("  - ✅ Sent to n8n successfully")
-                else:
-                    print(f"  - ❌ n8n returned error {resp.status_code}")
-                    
-            except requests.exceptions.ReadTimeout:
-                # Catch specific timeout from slow Ollama, but consider it success-ish
-                print("  - ⚠️ TIMEOUT: n8n/Ollama took > 600s. Moving to next tender (Data was likely sent).")
-            except requests.exceptions.ConnectionError:
-                print("  - ❌ Connection Error: Could not reach n8n server.")
-            except Exception as e:
-                print(f"  - ❌ General n8n error: {e}")
-
         all_processed_tenders.append(tender_payload)
+        
         clear_download_directory()
         time.sleep(random.uniform(2, 4))
 
 finally:
     if all_processed_tenders:
+        # Create Excel File
+        output_filename = "marches_publics_extracted.xlsx"
         df_out = pd.DataFrame(all_processed_tenders)
-        out_path = os.path.join(os.getcwd(), "tender_results_summary.csv")
-        df_out.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"✅ Saved {len(df_out)} tenders to {out_path}")
+        
+        # Save to Excel
+        output_path = os.path.join(os.getcwd(), output_filename)
+        # Using openpyxl engine is standard for xlsx
+        try:
+            df_out.to_excel(output_path, index=False, engine='openpyxl')
+            print(f"✅ Excel saved: {output_path} ({len(df_out)} rows)")
+        except Exception as e:
+            print(f"❌ Failed to save Excel: {e}")
+            # Fallback to CSV if Excel fails
+            df_out.to_csv("backup_results.csv", index=False)
+            
     else:
         print("ℹ️ No tenders processed.")
 

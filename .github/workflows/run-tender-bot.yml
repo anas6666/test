@@ -1,4 +1,4 @@
-name: Run Tender AI Bot 
+name: Run Tender AI Bot
 
 on:
   schedule:

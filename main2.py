@@ -190,6 +190,11 @@ try:
     for char in yesterday:
         date_input.send_keys(char)
         time.sleep(random.uniform(0.05, 0.15))
+
+    input_field = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$keywordSearch")
+    input_field.send_keys("intelligence artificielle")
+    time.sleep(1)
+    
     search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_button)
     time.sleep(0.8)

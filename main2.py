@@ -42,6 +42,9 @@ options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option("useAutomationExtension", False)
 
+# ✅ CRITICAL FIX: Add User-Agent to look like a real browser
+options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
 prefs = {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
@@ -51,8 +54,8 @@ options.add_experimental_option("prefs", prefs)
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 25)
-driver.set_page_load_timeout(40)
+wait = WebDriverWait(driver, 30) # Increased to 30s
+driver.set_page_load_timeout(60)
 print("✅ WebDriver initialized.")
 
 PDF_PAGE_LIMIT = 10
@@ -166,12 +169,26 @@ all_processed_tenders = []
 
 try:
     print("\n--- Starting scraping ---")
-    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
-    time.sleep(2)
+    url = "https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons"
+    driver.get(url)
+    print(f"🌐 Page loaded. Title: {driver.title}")
+    
+    # Wait for body to ensure page isn't blank
+    wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+    time.sleep(3)
 
-    # Step 1: Open "Définir" popup
-    define_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_domaineActivite_linkDisplay")))
-    define_btn.click()
+    # Step 1: Open "Définir" popup (DEBUG WRAPPED)
+    try:
+        define_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_domaineActivite_linkDisplay")))
+        define_btn.click()
+    except TimeoutException:
+        print("❌ CRITICAL ERROR: Could not find 'Définir' button.")
+        print(f"Current URL: {driver.current_url}")
+        driver.save_screenshot("error_page_timeout.png")
+        with open("error_page_source.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        raise  # Stop the script here to trigger failure
+
     wait.until(lambda d: len(d.window_handles) > 1)
     driver.switch_to.window(driver.window_handles[-1])
 
@@ -182,39 +199,54 @@ try:
     validate_btn.click()
     driver.switch_to.window(driver.window_handles[0])
     print("✅ Services selected.")
+    time.sleep(1)
 
-    # Step 3: Set date filter to yesterday
+    # Step 3: Date and Keyword
     yesterday = "01/01/2020"
-
-    date_input = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$dateMiseEnLigneStart")
-    date_input.clear()
-    for char in yesterday:
-        date_input.send_keys(char)
-        time.sleep(random.uniform(0.08, 0.2))
     
-    date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
-    date_input.clear()
-    for char in yesterday:
-        date_input.send_keys(char)
-        time.sleep(random.uniform(0.08, 0.2))
+    # Try both potential date inputs
+    try:
+        date_input = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$dateMiseEnLigneStart")
+        date_input.clear()
+        date_input.send_keys(yesterday)
+    except:
+        pass
+        
+    try:
+        date_input_2 = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
+        date_input_2.clear()
+        date_input_2.send_keys(yesterday)
+    except:
+        pass
 
-    input_field = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$keywordSearch")
-    input_field.send_keys("intelligence artificielle")
+    try:
+        input_field = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$keywordSearch")
+        input_field.clear()
+        input_field.send_keys("intelligence artificielle")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not find keyword input: {e}")
+
     time.sleep(1)
     
     search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", search_button)
-    time.sleep(0.8)
+    time.sleep(1)
     search_button.click()
-    time.sleep(2)
+    print("✅ Search submitted.")
+    time.sleep(3)
 
     # Step 4: Set results per page
-    wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
-    Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
-    time.sleep(2)
+    try:
+        wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
+        Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
+        time.sleep(3)
+    except TimeoutException:
+        print("ℹ️ No results table found or no pagination options (possibly 0 results).")
 
     # Step 5: Scrape table
     rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+    print(f"✅ Found {len(rows)} rows.")
+    
     data = []
     for row in rows:
         try:
@@ -236,117 +268,131 @@ try:
             print(f"⚠️ Error extracting row: {e}")
 
     df = pd.DataFrame(data)
+    
+    if not df.empty:
+        excluded_words = ["construction", "installation", "travaux", "fourniture", "achat", "equipement", "supply", "acquisition", "nettoyage"]
+        df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
+        print(f"✅ {len(df)} valid tenders after filtering.\n")
 
-    excluded_words = ["construction", "installation", "travaux", "fourniture", "achat", "equipement", "supply", "acquisition", "nettoyage"]
-    df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
-    print(f"✅ {len(df)} valid tenders after filtering.\n")
+        # Step 6: Download loop
+        fields = {
+            "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_nom": "Lachhab",
+            "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_prenom": "Anas",
+            "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_email": "anas.lachhab@example.com"
+        }
 
-    # Step 6: Download loop
-    fields = {
-        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_nom": "Lachhab",
-        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_prenom": "Anas",
-        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_email": "anas.lachhab@example.com"
-    }
+        for idx, row in df.iterrows():
+            link = row['first_button_url']
+            print(f"\n🔗 Processing tender {idx+1}/{len(df)}: {link}")
 
-    for idx, row in df.iterrows():
-        link = row['first_button_url']
-        print(f"\n🔗 Processing tender {idx+1}/{len(df)}: {link}")
-
-        try:
-            driver.get(link)
-        except TimeoutException:
-            print(f"⚠️ Timeout loading {link}, retrying...")
             try:
-                driver.execute_script("window.stop();")
-                driver.execute_script("window.location.href = arguments[0];", link)
+                driver.get(link)
             except TimeoutException:
-                print(f"❌ Still timed out, skipping this tender.")
-                continue
+                print(f"⚠️ Timeout loading {link}, retrying...")
+                try:
+                    driver.execute_script("window.stop();")
+                    driver.execute_script("window.location.href = arguments[0];", link)
+                except TimeoutException:
+                    print(f"❌ Still timed out, skipping this tender.")
+                    continue
 
-        time.sleep(3)
-        merged_text = "No document downloaded"
+            time.sleep(3)
+            merged_text = "No document downloaded"
 
-        try:
-            download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
-            driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
-            download_link.click()
-
-            # Fill form
-            for fid, value in fields.items():
-                inp = wait.until(EC.presence_of_element_located((By.ID, fid)))
-                inp.clear()
-                inp.send_keys(value)
-
-            # Accept terms
-            checkbox = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")
-            if not checkbox.is_selected():
-                checkbox.click()
-
-            valider_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", valider_button)
-            time.sleep(0.5)
             try:
-                valider_button.click()
-            except ElementClickInterceptedException:
-                driver.execute_script("arguments[0].click();", valider_button)
+                download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
+                driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
+                download_link.click()
 
-            final_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
-            driver.execute_script("arguments[0].scrollIntoView(true);", final_button)
-            final_button.click()
-            print("✅ Download started.")
+                # Fill form
+                for fid, value in fields.items():
+                    try:
+                        inp = wait.until(EC.presence_of_element_located((By.ID, fid)))
+                        inp.clear()
+                        inp.send_keys(value)
+                    except:
+                        pass # Sometimes fields are pre-filled
 
-            downloaded_file = wait_for_download_complete()
-            if downloaded_file:
-                file_paths = []
-                if downloaded_file.lower().endswith(".zip"):
-                    unzip_dir = extract_from_zip(downloaded_file)
-                    if unzip_dir:
-                        for r, _, files in os.walk(unzip_dir):
-                            for f in files:
-                                file_paths.append(os.path.join(r, f))
-                else:
-                    file_paths.append(downloaded_file)
+                # Accept terms
+                try:
+                    checkbox = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")
+                    if not checkbox.is_selected():
+                        checkbox.click()
+                except:
+                    pass
 
-                texts = []
-                for fpath in file_paths:
-                    fname = os.path.basename(fpath)
-                    ext = os.path.splitext(fname)[1].lower()
-                    text = ""
-                
-                    if "cps" in fname.lower():
-                        print(f"SKIPPED CPS: {fname}")
-                        continue
-                
-                    if ext == ".pdf":
-                        text = extract_text_from_pdf(fpath)
-                    elif ext == ".docx":
-                        text = extract_text_from_docx(fpath)
-                    elif ext == ".doc":
-                        text = extract_text_from_doc(fpath)
+                valider_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", valider_button)
+                time.sleep(0.5)
+                try:
+                    valider_button.click()
+                except ElementClickInterceptedException:
+                    driver.execute_script("arguments[0].click();", valider_button)
+
+                final_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
+                driver.execute_script("arguments[0].scrollIntoView(true);", final_button)
+                final_button.click()
+                print("✅ Download started.")
+
+                downloaded_file = wait_for_download_complete()
+                if downloaded_file:
+                    file_paths = []
+                    if downloaded_file.lower().endswith(".zip"):
+                        unzip_dir = extract_from_zip(downloaded_file)
+                        if unzip_dir:
+                            for r, _, files in os.walk(unzip_dir):
+                                for f in files:
+                                    file_paths.append(os.path.join(r, f))
                     else:
-                        print(f"SKIPPED UNSUPPORTED: {fname}")
-                        continue
-                
-                    print(f"EXTRACTED {len(text)} chars from {fname}")
-                
-                    if text.strip():
-                        texts.append(text)
-                
-                merged_text = "\n\n".join(texts) or "No relevant text extracted"
-            else:
-                print("⚠️ Download failed or timed out.")
+                        file_paths.append(downloaded_file)
 
-        except Exception as e:
-            print(f"⚠️ Error processing tender {link}: {e}")
-            traceback.print_exc()
+                    texts = []
+                    for fpath in file_paths:
+                        fname = os.path.basename(fpath)
+                        ext = os.path.splitext(fname)[1].lower()
+                        text = ""
+                    
+                        if "cps" in fname.lower():
+                            print(f"SKIPPED CPS: {fname}")
+                            continue
+                    
+                        if ext == ".pdf":
+                            text = extract_text_from_pdf(fpath)
+                        elif ext == ".docx":
+                            text = extract_text_from_docx(fpath)
+                        elif ext == ".doc":
+                            text = extract_text_from_doc(fpath)
+                        else:
+                            print(f"SKIPPED UNSUPPORTED: {fname}")
+                            continue
+                    
+                        print(f"EXTRACTED {len(text)} chars from {fname}")
+                    
+                        if text.strip():
+                            texts.append(text)
+                    
+                    merged_text = "\n\n".join(texts) or "No relevant text extracted"
+                else:
+                    print("⚠️ Download failed or timed out.")
 
-        # Add data to result list
-        tender_payload = row.to_dict()
-        tender_payload["merged_text"] = merged_text
-        all_processed_tenders.append(tender_payload)
-        
-        clear_download_directory()
-        time.sleep(random.uniform(2, 4))
+            except Exception as e:
+                print(f"⚠️ Error processing tender {link}: {e}")
+                # traceback.print_exc()
+
+            # Add data to result list
+            tender_payload = row.to_dict()
+            tender_payload["merged_text"] = merged_text
+            all_processed_tenders.append(tender_payload)
+            
+            clear_download_directory()
+            time.sleep(random.uniform(2, 4))
+    else:
+        print("⚠️ No data found in the initial table.")
+
+except Exception as e:
+    print(f"❌ FATAL ERROR: {e}")
+    traceback.print_exc()
+    driver.save_screenshot("error_page_fatal.png")
 
 finally:
     if all_processed_tenders:
@@ -356,13 +402,11 @@ finally:
         
         # Save to Excel
         output_path = os.path.join(os.getcwd(), output_filename)
-        # Using openpyxl engine is standard for xlsx
         try:
             df_out.to_excel(output_path, index=False, engine='openpyxl')
             print(f"✅ Excel saved: {output_path} ({len(df_out)} rows)")
         except Exception as e:
             print(f"❌ Failed to save Excel: {e}")
-            # Fallback to CSV if Excel fails
             df_out.to_csv("backup_results.csv", index=False)
             
     else:

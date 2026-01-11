@@ -184,12 +184,19 @@ try:
     print("✅ Services selected.")
 
     # Step 3: Set date filter to yesterday
-    date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+    yesterday = "01/01/2020"
+
+    date_input = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$dateMiseEnLigneStart")
     date_input.clear()
     for char in yesterday:
         date_input.send_keys(char)
-        time.sleep(random.uniform(0.05, 0.15))
+        time.sleep(random.uniform(0.08, 0.2))
+    
+    date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
+    date_input.clear()
+    for char in yesterday:
+        date_input.send_keys(char)
+        time.sleep(random.uniform(0.08, 0.2))
 
     input_field = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$keywordSearch")
     input_field.send_keys("intelligence artificielle")

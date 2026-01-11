@@ -1,0 +1,67 @@
+name: Run Tender Company Bot
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # Runs at 3 AM UTC
+  workflow_dispatch: # Allows manual trigger button
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # Stop if stuck for more than 1 hour
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10" # Updated to 3.10 (more stable for newer Pandas)
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      # Install Chrome Browser and OCR tools
+      # Note: We do NOT need to download Chromedriver manually anymore. 
+      # Selenium Manager (included in python selenium package) does it for us.
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara
+          sudo apt-get install -y poppler-utils antiword
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install openpyxl webdriver-manager
+
+      - name: Run Tender Bot
+        run: python main3.py
+
+      # ✅ FIXED: Uploads ALL Excel and CSV files generated
+      # This catches 'marches_publics_companys.xlsx', 'initial_tenders_list.csv', etc.
+      - name: Upload Output Data
+        uses: actions/upload-artifact@v4
+        with:
+          name: tender-data-results
+          path: |
+            *.xlsx
+            *.csv
+          if-no-files-found: warn
+
+      # Debug on failure (Screenshots)
+      - name: Upload debug files on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: |
+            *.png
+            *.html
+          if-no-files-found: ignore

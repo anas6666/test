@@ -212,9 +212,15 @@ try:
         except Exception as e:
             print(f"⚠️ Failed to save initial CSV: {e}")
 
-    # --- [STEP 6] Process Each Tender Link ---
-    print("\n--- [STEP 6] Processing Details ---")
+    # --- [STEP 6] Process Each Tender Link (SKIPPED) ---
+    print("\n--- [STEP 6] Skipping Deep Scraping (User Request) ---")
     
+    # We transfer the metadata list directly to the final list
+    # so that Step 7 saves the data we have already found.
+    all_processed_tenders = metadata_list 
+
+    ''' 
+    # COMMENTED OUT AS REQUESTED
     df = pd.DataFrame(metadata_list)
 
     for idx, row in df.iterrows():
@@ -266,6 +272,7 @@ try:
         # Cleanup temp files and wait politely
         clear_download_directory()
         time.sleep(random.uniform(1.5, 3))
+    '''
 
 except Exception as e:
     print("\n❌ [FATAL ERROR] Script crashed.")

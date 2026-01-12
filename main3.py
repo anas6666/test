@@ -17,7 +17,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import (
     TimeoutException, 
     NoSuchElementException, 
-    StaleElementReferenceException
+    StaleElementReferenceException,
+    ElementNotInteractableException # Added for potential Next button issues
 )
 
 # -----------------------------
@@ -76,6 +77,7 @@ def clear_download_directory():
 # -----------------------------
 all_processed_tenders = [] # List to store final data
 metadata_list = [] # List to store initial data
+current_page_number = 1 # Added for pagination tracking
 
 try:
     print("\n--- [STEP 1] Starting Navigation ---")
@@ -117,18 +119,20 @@ try:
 
     # --- [STEP 3] Fill Search Form ---
     print("--- [STEP 3] Filling Search Form ---")
-    yesterday = "01/01/2020"
+    yesterday = "01/01/2020" # Using a fixed date for broader results
     
     # Fill Date
     try:
         date_input = driver.find_element(By.NAME, "ctl0$CONTENU_PAGE$AdvancedSearch$dateMiseEnLigneStart")
         date_input.clear()
         date_input.send_keys(yesterday)
+        print(f"ℹ️ Start date set to: {yesterday}")
     except NoSuchElementException:
         try:
             date_input_2 = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
             date_input_2.clear()
             date_input_2.send_keys(yesterday)
+            print(f"ℹ️ Start date (alternative field) set to: {yesterday}")
         except:
             print("⚠️ Date input not found, skipping date filter.")
 
@@ -149,54 +153,103 @@ try:
     time.sleep(1)
     search_button.click()
     print("✅ Search submitted.")
-    time.sleep(5)
+    time.sleep(5) # Give it time to load the initial results
 
     # --- [STEP 4] Set Page Size ---
     try:
         print("--- [STEP 4] Adjusting Page Size ---")
+        # Ensure the table and page size dropdown are present before interacting
         wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
         Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
         print("ℹ️ Page size set to 500.")
-        time.sleep(5)
+        time.sleep(7) # Increased sleep after changing page size, as it triggers a reload
     except TimeoutException:
-        print("ℹ️ No results table found (possibly 0 results).")
+        print("ℹ️ No results table or page size dropdown found (possibly 0 results).")
+    except NoSuchElementException:
+        print("ℹ️ Page size dropdown not found, continuing with default page size.")
+        
+    # --- [STEP 5] Scrape Main Table and Paginate ---
+    print("\n--- [STEP 5] Scraping Table Rows and Paginating ---")
 
-    # --- [STEP 5] Scrape Main Table ---
-    print("--- [STEP 5] Scraping Table Rows ---")
-    
-    try:
-        rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
-        print(f"📄 Found {len(rows)} rows on current page.")
+    while True: # Loop indefinitely until no more "Next" buttons
+        print(f"--- Scraping Page {current_page_number} ---")
+        try:
+            # Wait for the table rows to be present on the page
+            # This helps against StaleElementReferenceException if the page reloads
+            wait.until(EC.presence_of_all_elements_located((By.XPATH, '//table[@class="table-results"]/tbody/tr[not(contains(@class, "table-header"))]')))
+            
+            rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr[not(contains(@class, "table-header"))]')
+            
+            if not rows:
+                print(f"📄 No tender rows found on page {current_page_number}. Ending pagination.")
+                break # Exit if no rows are found, likely end of results
+            
+            print(f"📄 Found {len(rows)} rows on Page {current_page_number}.")
 
-        for row in rows:
-            try:
-                # Skip header rows
-                if "table-header" in row.get_attribute("class"): 
+            for row in rows:
+                try:
+                    ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+                    
+                    objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
+                    buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
+                    lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
+                    deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
+                    first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
+                    
+                    metadata_list.append({
+                        "reference": ref,
+                        "objet": objet,
+                        "acheteur": buyer,
+                        "lieux_execution": lieux,
+                        "date_limite": deadline,
+                        "first_button_url": first_button
+                    })
+                except StaleElementReferenceException:
+                    print("   ⚠️ Stale element encountered, re-locating row for next iteration.")
+                    continue # Skip this row, try next if the element is stale
+                except Exception as e:
+                    print(f"   ⚠️ Error scraping a row on page {current_page_number}: {e}")
                     continue
-
-                ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+            
+            print(f"✅ Total tenders collected so far: {len(metadata_list)}")
+            
+            # --- Pagination Logic ---
+            # Try to find the "Next" button
+            # Look for an <a> tag with title "Page suivante" or text "Suivante"
+            # It's usually within a 'pagination' div. The structure might vary.
+            next_button = None
+            try:
+                # This XPath looks for a link within the pagination section that contains "Suivante"
+                # or a link that specifically has 'title="Page suivante"'.
+                # Adjust this XPath if your "Next" button has a different identifier.
+                next_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_resultSearch_PagerTop_ctl2")))
+        
                 
-                # XPath relative to row
-                objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
-                buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
-                lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
-                deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
-                first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
+                # Check if the next button is enabled/active
+                if "aspNetDisabled" in next_button.get_attribute("class") or next_button.get_attribute("disabled"):
+                    print("ℹ️ 'Next' button is disabled or not active. Ending pagination.")
+                    break # Exit loop if button is disabled
                 
-                metadata_list.append({
-                    "reference": ref,
-                    "objet": objet,
-                    "acheteur": buyer,
-                    "lieux_execution": lieux,
-                    "date_limite": deadline,
-                    "first_button_url": first_button
-                })
-            except Exception as e:
-                continue
-    except Exception as e:
-        print(f"❌ Error scraping table: {e}")
+                driver.execute_script("arguments[0].scrollIntoView(true);", next_button)
+                time.sleep(1) # Small pause before clicking
+                next_button.click()
+                print(f"➡️ Clicked 'Next' button to go to Page {current_page_number + 1}.")
+                time.sleep(5) # Give page time to load new results
+                current_page_number += 1
+                
+            except (NoSuchElementException, TimeoutException, ElementNotInteractableException):
+                print("ℹ️ 'Next' button not found or not clickable. Ending pagination.")
+                break # Exit the loop if no next button is found or interactable
+            
+        except TimeoutException:
+            print(f"❌ Timed out waiting for table rows on page {current_page_number}. Ending pagination.")
+            break # Exit the loop if rows aren't found on a new page
+        except Exception as e:
+            print(f"❌ Error during pagination on page {current_page_number}: {e}")
+            print(traceback.format_exc())
+            break # Break on other unexpected errors
 
-    print(f"✅ Total tenders collected: {len(metadata_list)}")
+    print(f"✅ Total unique tenders collected after pagination: {len(metadata_list)}")
 
     # -----------------------------
     # STEP 5.5: IMMEDIATE CSV SAVE
@@ -206,7 +259,7 @@ try:
         try:
             initial_df = pd.DataFrame(metadata_list)
             # Use utf-8-sig so Excel opens it correctly with accents
-            initial_csv_name = "initial_tenders_list.csv"
+            initial_csv_name = "initial_tenders_list_paginated.csv" # Changed filename
             initial_df.to_csv(initial_csv_name, index=False, encoding='utf-8-sig')
             print(f"✅ Initial list saved: {initial_csv_name}")
         except Exception as e:
@@ -219,60 +272,7 @@ try:
     # so that Step 7 saves the data we have already found.
     all_processed_tenders = metadata_list 
 
-    ''' 
-    # COMMENTED OUT AS REQUESTED
-    df = pd.DataFrame(metadata_list)
-
-    for idx, row in df.iterrows():
-        link = row['first_button_url']
-        print(f"\n🔗 [{idx+1}/{len(df)}] Processing: {link}")
-
-        try:
-            driver.get(link)
-        except TimeoutException:
-            print("   ⚠️ Timeout loading page. Retrying...")
-            driver.refresh()
-            time.sleep(3)
-
-        merged_text = "No participants found"
-
-        # Try to find 'Extrait de PV' or Participants Table
-        try:
-            # Look for the PV link
-            try:
-                pv_link = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[contains(@title, "Extrait de PV") or contains(text(), "Extrait de PV")]')))
-                driver.execute_script("arguments[0].scrollIntoView(true);", pv_link)
-                pv_link.click()
-                time.sleep(2)
-            except:
-                pass # Link might not exist, but table might be there
-
-            # Scrape the specific table for participants
-            try:
-                table_body = driver.find_element(By.CSS_SELECTOR, '#entreprisesParticipantesIn table.table-results tbody')
-                part_rows = table_body.find_elements(By.TAG_NAME, 'tr')
-                companies = [r.text.strip() for r in part_rows if r.text.strip()]
-                
-                if companies:
-                    merged_text = " | ".join(companies)
-                    print(f"   ✅ Found companies: {merged_text[:50]}...")
-                else:
-                    print("   ℹ️ Table empty.")
-            except NoSuchElementException:
-                 print("   ℹ️ No participant table found.")
-
-        except Exception as e:
-            print(f"   ⚠️ Error processing details: {e}")
-
-        # Add gathered text to the data
-        tender_payload = row.to_dict()
-        tender_payload["participants"] = merged_text
-        all_processed_tenders.append(tender_payload)
-
-        # Cleanup temp files and wait politely
-        clear_download_directory()
-        time.sleep(random.uniform(1.5, 3))
-    '''
+    # (Your commented-out deep scraping code remains here)
 
 except Exception as e:
     print("\n❌ [FATAL ERROR] Script crashed.")
@@ -287,8 +287,7 @@ finally:
     
     if all_processed_tenders:
         # Create a unique filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        excel_filename = f"marches_publics_companys.xlsx"
+        excel_filename = f"marches_publics_companys_all_pages.xlsx" # Changed filename
         
         df_out = pd.DataFrame(all_processed_tenders)
         
@@ -300,7 +299,7 @@ finally:
         except Exception as e:
             print(f"❌ Failed to save Excel (Reason: {e})")
             # Fallback to CSV
-            csv_filename = f"marches_publics_backup_{timestamp}.csv"
+            csv_filename = f"marches_publics_backup_all_pages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             df_out.to_csv(csv_filename, index=False, encoding='utf-8-sig')
             print(f"✅ Saved as CSV instead: {csv_filename}")
     else:

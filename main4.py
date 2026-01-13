@@ -71,8 +71,8 @@ df = pd.read_excel(EXCEL_FILE)
 if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
-
-for index, row in df.iterrows():
+####### 2000
+for index, row in df.head(2000).iterrows():
     url = row[URL_COLUMN]
 
     # Skip empty URLs

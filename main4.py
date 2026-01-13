@@ -72,7 +72,7 @@ if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
 
-for index, row in df.head(10).iterrows():
+for index, row in df.iterrows():
     url = row[URL_COLUMN]
 
     # Skip empty URLs

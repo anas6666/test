@@ -12,8 +12,8 @@ EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
 RESULT_COLUMN = "Entreprise"
 
-BATCH_SIZE = 100        # URLs per run
-MAX_BATCHES = 83         # Stop after 5 batches (500 URLs)
+BATCH_SIZE = 1000        # URLs per run
+MAX_BATCHES = 8         # Stop after 5 batches (500 URLs)
 BATCH_COUNTER_FILE = "batch_counter.txt"
 
 HEADERS = {

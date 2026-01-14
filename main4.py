@@ -19,7 +19,7 @@ BASE_DIR = os.getcwd()
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-MAX_URLS = 2000
+MAX_URLS = 1000
 
 EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
@@ -101,7 +101,7 @@ for index in range(total_rows):
     processed += 1
 
     if processed >= MAX_URLS:
-        print("🛑 HARD STOP reached (2000 URLs)")
+        print("🛑 HARD STOP reached (1000 URLs)")
         break
 
 # -----------------------------

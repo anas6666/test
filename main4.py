@@ -19,7 +19,7 @@ BASE_DIR = os.getcwd()
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-MAX_URLS = 1000
+MAX_URLS = 100
 
 EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"

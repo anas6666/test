@@ -19,7 +19,8 @@ BASE_DIR = os.getcwd()
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-MAX_URLS = 50
+START_INDEX = 50      # 👈 CHANGE THIS (0, 50, 100, ...)
+MAX_URLS = 1000
 
 EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
@@ -47,7 +48,6 @@ options.add_argument(
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 30)
-
 driver.set_page_load_timeout(60)
 
 print("✅ WebDriver ready")
@@ -56,24 +56,23 @@ print("✅ WebDriver ready")
 # LOAD EXCEL
 # -----------------------------
 df = pd.read_excel(EXCEL_FILE)
-
-# Reset index to avoid any weird jumps
 df = df.reset_index(drop=True)
 
-# Create result column if missing
 if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
-total_rows = min(len(df), MAX_URLS)
-print(f"📊 Processing {total_rows} URLs (MAX={MAX_URLS})")
+total_rows = len(df)
+end_index = min(START_INDEX + MAX_URLS, total_rows)
+
+print(f"📊 Processing URLs {START_INDEX + 1} → {end_index}")
 
 # -----------------------------
-# SCRAPING LOOP (HARD LIMITED)
+# SCRAPING LOOP (BATCH)
 # -----------------------------
 processed = 0
 
-for index in range(total_rows):
-    url = df.iloc[index][URL_COLUMN]
+for index in range(START_INDEX, end_index):
+    url = df.at[index, URL_COLUMN]
 
     if pd.isna(url):
         continue
@@ -86,12 +85,7 @@ for index in range(total_rows):
             EC.presence_of_element_located((By.CLASS_NAME, "table-results"))
         )
 
-        ent = (
-            element.text
-            .strip()
-            .replace("\n", " - ")
-        )
-
+        ent = element.text.strip().replace("\n", " - ")
         df.at[index, RESULT_COLUMN] = ent
 
     except Exception as e:
@@ -101,7 +95,7 @@ for index in range(total_rows):
     processed += 1
 
     if processed >= MAX_URLS:
-        print("🛑 HARD STOP reached (1000 URLs)")
+        print("🛑 Batch limit reached")
         break
 
 # -----------------------------
@@ -112,4 +106,4 @@ driver.quit()
 df.to_excel(OUTPUT_FILE, index=False)
 
 print("✅ Scraping finished successfully")
-print(f"📦 Artifact ready: {OUTPUT_FILE}")
+print(f"📦 Output saved: {OUTPUT_FILE}")

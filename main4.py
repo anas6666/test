@@ -1,26 +1,30 @@
 import os
 import sys
+import time
 import pandas as pd
-
-# Selenium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
+import requests
+from bs4 import BeautifulSoup
 
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-print("🚀 Initializing configuration...")
-
 EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
 RESULT_COLUMN = "Entreprise"
 
-BATCH_SIZE = 50        # URLs per run
-MAX_BATCHES = 2         # 5 batches = 500 URLs max
+BATCH_SIZE = 100        # URLs per run
+MAX_BATCHES = 83         # Stop after 5 batches (500 URLs)
 BATCH_COUNTER_FILE = "batch_counter.txt"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+print("🚀 Starting batch scraping (bs4)")
 
 # -----------------------------
 # LOAD / INIT BATCH COUNTER
@@ -57,23 +61,7 @@ end_index = min(start_index + BATCH_SIZE, len(df))
 print(f"📊 Processing rows {start_index + 1} → {end_index}")
 
 # -----------------------------
-# SELENIUM SETUP
-# -----------------------------
-options = webdriver.ChromeOptions()
-options.add_argument("--headless=new")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--disable-gpu")
-options.add_argument("--window-size=1920,1080")
-options.add_argument("--blink-settings=imagesEnabled=false")
-options.add_argument("--disable-blink-features=AutomationControlled")
-
-service = Service()
-driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 10)
-
-# -----------------------------
-# SCRAPING LOOP
+# SCRAPING LOOP (BS4)
 # -----------------------------
 for index in range(start_index, end_index):
     url = df.at[index, URL_COLUMN]
@@ -82,22 +70,30 @@ for index in range(start_index, end_index):
         continue
 
     try:
-        print(f"[{index + 1}] Opening: {url}")
-        driver.get(str(url))
+        print(f"[{index + 1}] Fetching: {url}")
 
-        element = wait.until(
-            EC.presence_of_element_located((By.CLASS_NAME, "table-results"))
-        )
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        response.raise_for_status()
 
-        df.at[index, RESULT_COLUMN] = element.text.strip().replace("\n", " - ")
+        soup = BeautifulSoup(response.text, "html.parser")
+        table = soup.find("table", class_="table-results")
 
-    except Exception:
+        if table:
+            df.at[index, RESULT_COLUMN] = table.get_text(
+                separator=" - ", strip=True
+            )
+        else:
+            df.at[index, RESULT_COLUMN] = None
+
+    except Exception as e:
+        print(f"❌ Failed: {url}")
         df.at[index, RESULT_COLUMN] = None
 
     # SAVE AFTER EACH URL (CRASH SAFE)
     df.to_excel(EXCEL_FILE, index=False)
 
-driver.quit()
+    # polite delay
+    time.sleep(0.5)
 
 # -----------------------------
 # UPDATE BATCH COUNTER
@@ -106,5 +102,5 @@ batch_count += 1
 with open(BATCH_COUNTER_FILE, "w") as f:
     f.write(str(batch_count))
 
-print("✅ Batch finished successfully")
+print("✅ Batch completed successfully")
 print(f"📦 Progress saved to {EXCEL_FILE}")

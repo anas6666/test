@@ -1,7 +1,6 @@
 import os
-import time
+import sys
 import pandas as pd
-from datetime import datetime
 
 # Selenium
 from selenium import webdriver
@@ -15,42 +14,28 @@ from selenium.webdriver.chrome.service import Service
 # -----------------------------
 print("🚀 Initializing configuration...")
 
-BASE_DIR = os.getcwd()
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-START_INDEX = 50      # 👈 CHANGE THIS (0, 50, 100, ...)
-MAX_URLS = 1000
-
 EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
 RESULT_COLUMN = "Entreprise"
-OUTPUT_FILE = "tender_results.xlsx"
+
+BATCH_SIZE = 50        # URLs per run
+MAX_BATCHES = 2         # 5 batches = 500 URLs max
+BATCH_COUNTER_FILE = "batch_counter.txt"
 
 # -----------------------------
-# SELENIUM SETUP
+# LOAD / INIT BATCH COUNTER
 # -----------------------------
-options = webdriver.ChromeOptions()
-options.add_argument("--headless=new")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--window-size=1920,1080")
-options.add_argument("--disable-gpu")
-options.add_argument("--disable-blink-features=AutomationControlled")
-options.add_experimental_option("excludeSwitches", ["enable-automation"])
-options.add_experimental_option("useAutomationExtension", False)
+if os.path.exists(BATCH_COUNTER_FILE):
+    with open(BATCH_COUNTER_FILE, "r") as f:
+        batch_count = int(f.read().strip())
+else:
+    batch_count = 0
 
-options.add_argument(
-    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+if batch_count >= MAX_BATCHES:
+    print("🛑 Max batches reached. Stopping.")
+    sys.exit(0)
 
-service = Service()
-driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 30)
-driver.set_page_load_timeout(60)
-
-print("✅ WebDriver ready")
+print(f"🔁 Running batch {batch_count + 1} / {MAX_BATCHES}")
 
 # -----------------------------
 # LOAD EXCEL
@@ -61,49 +46,65 @@ df = df.reset_index(drop=True)
 if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
-total_rows = len(df)
-end_index = min(START_INDEX + MAX_URLS, total_rows)
+# Find first unprocessed row
+start_index = df[df[RESULT_COLUMN].isna()].index.min()
 
-print(f"📊 Processing URLs {START_INDEX + 1} → {end_index}")
+if pd.isna(start_index):
+    print("✅ All URLs already processed.")
+    sys.exit(0)
+
+end_index = min(start_index + BATCH_SIZE, len(df))
+print(f"📊 Processing rows {start_index + 1} → {end_index}")
 
 # -----------------------------
-# SCRAPING LOOP (BATCH)
+# SELENIUM SETUP
 # -----------------------------
-processed = 0
+options = webdriver.ChromeOptions()
+options.add_argument("--headless=new")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--disable-gpu")
+options.add_argument("--window-size=1920,1080")
+options.add_argument("--blink-settings=imagesEnabled=false")
+options.add_argument("--disable-blink-features=AutomationControlled")
 
-for index in range(START_INDEX, end_index):
+service = Service()
+driver = webdriver.Chrome(service=service, options=options)
+wait = WebDriverWait(driver, 10)
+
+# -----------------------------
+# SCRAPING LOOP
+# -----------------------------
+for index in range(start_index, end_index):
     url = df.at[index, URL_COLUMN]
 
     if pd.isna(url):
         continue
 
     try:
-        print(f"[{index + 1}/{total_rows}] Opening: {url}")
+        print(f"[{index + 1}] Opening: {url}")
         driver.get(str(url))
 
         element = wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "table-results"))
         )
 
-        ent = element.text.strip().replace("\n", " - ")
-        df.at[index, RESULT_COLUMN] = ent
+        df.at[index, RESULT_COLUMN] = element.text.strip().replace("\n", " - ")
 
-    except Exception as e:
-        print(f"❌ Failed for URL {url}")
+    except Exception:
         df.at[index, RESULT_COLUMN] = None
 
-    processed += 1
+    # SAVE AFTER EACH URL (CRASH SAFE)
+    df.to_excel(EXCEL_FILE, index=False)
 
-    if processed >= MAX_URLS:
-        print("🛑 Batch limit reached")
-        break
-
-# -----------------------------
-# CLEANUP & SAVE
-# -----------------------------
 driver.quit()
 
-df.to_excel(OUTPUT_FILE, index=False)
+# -----------------------------
+# UPDATE BATCH COUNTER
+# -----------------------------
+batch_count += 1
+with open(BATCH_COUNTER_FILE, "w") as f:
+    f.write(str(batch_count))
 
-print("✅ Scraping finished successfully")
-print(f"📦 Output saved: {OUTPUT_FILE}")
+print("✅ Batch finished successfully")
+print(f"📦 Progress saved to {EXCEL_FILE}")

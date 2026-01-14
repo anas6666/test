@@ -1,39 +1,36 @@
 import os
 import time
-import re
-import shutil
-import zipfile
-import subprocess
-import traceback
-import unicodedata
-import random
 import pandas as pd
-from datetime import datetime, timedelta
-
-# PDF / OCR / DOC
-import fitz  # PyMuPDF
-from pdf2image import convert_from_path
-from PIL import Image
-import pytesseract
-import docx
+from datetime import datetime
 
 # Selenium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
 print("🚀 Initializing configuration...")
-download_dir = os.path.join(os.getcwd(), "downloads_temp")
-os.makedirs(download_dir, exist_ok=True)
 
+BASE_DIR = os.getcwd()
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+MAX_URLS = 2000
+
+EXCEL_FILE = "URLS.xlsx"
+URL_COLUMN = "PV"
+RESULT_COLUMN = "Entreprise"
+OUTPUT_FILE = "tender_results.xlsx"
+
+# -----------------------------
+# SELENIUM SETUP
+# -----------------------------
 options = webdriver.ChromeOptions()
-options.add_argument("--headless=chrome")
+options.add_argument("--headless=new")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
@@ -42,64 +39,77 @@ options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option("useAutomationExtension", False)
 
-# ✅ CRITICAL FIX: Add User-Agent to look like a real browser
-options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-prefs = {
-    "download.default_directory": download_dir,
-    "download.prompt_for_download": False,
-    "download.directory_upgrade": True,
-}
-options.add_experimental_option("prefs", prefs)
+options.add_argument(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 30) # Increased to 30s
+wait = WebDriverWait(driver, 30)
+
 driver.set_page_load_timeout(60)
-print("✅ WebDriver initialized.")
 
-# -------- CONFIG --------
-EXCEL_FILE = "URLS.xlsx"
-URL_COLUMN = "PV"
-RESULT_COLUMN = "Entreprise"   # new column
-# ------------------------
+print("✅ WebDriver ready")
 
-# Read Excel
+# -----------------------------
+# LOAD EXCEL
+# -----------------------------
 df = pd.read_excel(EXCEL_FILE)
 
-# Create result column if it doesn't exist
+# Reset index to avoid any weird jumps
+df = df.reset_index(drop=True)
+
+# Create result column if missing
 if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
-####### 2000
-for index, row in df.head(2000).iterrows():
-    url = row[URL_COLUMN]
+total_rows = min(len(df), MAX_URLS)
+print(f"📊 Processing {total_rows} URLs (MAX={MAX_URLS})")
 
-    # Skip empty URLs
+# -----------------------------
+# SCRAPING LOOP (HARD LIMITED)
+# -----------------------------
+processed = 0
+
+for index in range(total_rows):
+    url = df.iloc[index][URL_COLUMN]
+
     if pd.isna(url):
         continue
 
     try:
-        print(f"Opening: {url}")
+        print(f"[{index + 1}/{total_rows}] Opening: {url}")
         driver.get(str(url))
-        time.sleep(2)
+
+        element = wait.until(
+            EC.presence_of_element_located((By.CLASS_NAME, "table-results"))
+        )
 
         ent = (
-            driver
-            .find_element(By.CLASS_NAME, "table-results")
-            .text
+            element.text
             .strip()
-            .replace('\n', ' - ')
+            .replace("\n", " - ")
         )
 
         df.at[index, RESULT_COLUMN] = ent
 
     except Exception as e:
-        print(f"No entreprise found for {url}")
+        print(f"❌ Failed for URL {url}")
         df.at[index, RESULT_COLUMN] = None
 
-output_file = "tender_results.xlsx"
-df.to_excel(output_file, index=False)
+    processed += 1
 
-print("✅ Scraping finished")
-print(f"📦 Artifact ready: {output_file}")
+    if processed >= MAX_URLS:
+        print("🛑 HARD STOP reached (2000 URLs)")
+        break
+
+# -----------------------------
+# CLEANUP & SAVE
+# -----------------------------
+driver.quit()
+
+df.to_excel(OUTPUT_FILE, index=False)
+
+print("✅ Scraping finished successfully")
+print(f"📦 Artifact ready: {OUTPUT_FILE}")

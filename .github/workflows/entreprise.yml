@@ -3,7 +3,7 @@ name: Run Tender Company Names Bot
 on:
   workflow_dispatch:
   schedule:
-  #  - cron: "*/1 * * * *"   # every 15 minutes
+    - cron: "*/2 * * * *"   # every 15 minutes
 
 jobs:
   run-bot:

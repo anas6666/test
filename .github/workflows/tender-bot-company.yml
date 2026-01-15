@@ -2,7 +2,7 @@ name: Run Tender Company Bot
 
 on:
   schedule:
-    - cron: "0 3 * * *" # Runs at 3 AM UTC
+ #   - cron: "0 3 * * *" # Runs at 3 AM UTC
   workflow_dispatch: # Allows manual trigger button
 
 jobs:

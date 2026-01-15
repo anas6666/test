@@ -4,9 +4,7 @@ permissions:
   contents: write
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "6 * * * *"
+  workflow_dispatch:   # 👈 manual trigger only
 
 jobs:
   run-bot:

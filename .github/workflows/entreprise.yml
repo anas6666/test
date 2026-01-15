@@ -1,28 +1,28 @@
 name: Run Tender Company Names Bot
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   schedule:
-     - cron: "6 * * * *"   # every hour (optional)
+    - cron: "6 * * * *"
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 55   # GitHub hard limit is 60
+    timeout-minutes: 55
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
 
       - name: Install Python dependencies
         run: |

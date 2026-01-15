@@ -3,12 +3,12 @@ name: Run Tender Company Names Bot
 on:
   workflow_dispatch:
   schedule:
- #   - cron: "*/2 * * * *"   # every 15 minutes
+    # - cron: "0 * * * *"   # every hour (optional)
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 55   # GitHub hard limit is 60
 
     steps:
       - name: Checkout repository
@@ -35,6 +35,6 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git add URLS.xlsx batch_counter.txt
-          git commit -m "Batch scraping progress" || echo "No changes"
+          git add URLS.xlsx
+          git commit -m "Scraping progress update" || echo "No changes"
           git push

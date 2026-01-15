@@ -42,7 +42,7 @@ jobs:
           pip install openpyxl webdriver-manager
 
       - name: Run Tender Bot
-        run: python main3.py
+        #run: python main3.py
 
       # ✅ FIXED: Uploads ALL Excel and CSV files generated
       # This catches 'marches_publics_companys.xlsx', 'initial_tenders_list.csv', etc.

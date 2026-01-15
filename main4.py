@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import pandas as pd
 import requests
@@ -12,10 +11,6 @@ EXCEL_FILE = "URLS.xlsx"
 URL_COLUMN = "PV"
 RESULT_COLUMN = "Entreprise"
 
-BATCH_SIZE = 1000        # URLs per run
-MAX_BATCHES = 8         # Stop after 5 batches (500 URLs)
-BATCH_COUNTER_FILE = "batch_counter.txt"
-
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -24,22 +19,7 @@ HEADERS = {
     )
 }
 
-print("🚀 Starting batch scraping (bs4)")
-
-# -----------------------------
-# LOAD / INIT BATCH COUNTER
-# -----------------------------
-if os.path.exists(BATCH_COUNTER_FILE):
-    with open(BATCH_COUNTER_FILE, "r") as f:
-        batch_count = int(f.read().strip())
-else:
-    batch_count = 0
-
-if batch_count >= MAX_BATCHES:
-    print("🛑 Max batches reached. Stopping.")
-    sys.exit(0)
-
-print(f"🔁 Running batch {batch_count + 1} / {MAX_BATCHES}")
+print("🚀 Starting scraping (bs4, no batches)")
 
 # -----------------------------
 # LOAD EXCEL
@@ -50,22 +30,14 @@ df = df.reset_index(drop=True)
 if RESULT_COLUMN not in df.columns:
     df[RESULT_COLUMN] = None
 
-# Find first unprocessed row
-start_index = df[df[RESULT_COLUMN].isna()].index.min()
-
-if pd.isna(start_index):
-    print("✅ All URLs already processed.")
-    sys.exit(0)
-
-end_index = min(start_index + BATCH_SIZE, len(df))
-print(f"📊 Processing rows {start_index + 1} → {end_index}")
-
 # -----------------------------
-# SCRAPING LOOP (BS4)
+# SCRAPING LOOP
 # -----------------------------
-for index in range(start_index, end_index):
-    url = df.at[index, URL_COLUMN]
+for index, row in df.iterrows():
+    if pd.notna(row[RESULT_COLUMN]):
+        continue  # already processed
 
+    url = row[URL_COLUMN]
     if pd.isna(url):
         continue
 
@@ -95,12 +67,5 @@ for index in range(start_index, end_index):
     # polite delay
     time.sleep(0.5)
 
-# -----------------------------
-# UPDATE BATCH COUNTER
-# -----------------------------
-batch_count += 1
-with open(BATCH_COUNTER_FILE, "w") as f:
-    f.write(str(batch_count))
-
-print("✅ Batch completed successfully")
-print(f"📦 Progress saved to {EXCEL_FILE}")
+print("✅ Scraping finished")
+print(f"📦 Results saved to {EXCEL_FILE}")

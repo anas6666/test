@@ -34,7 +34,7 @@ if RESULT_COLUMN not in df.columns:
 # SCRAPING LOOP
 # -----------------------------
 #for index, row in df.head(1000).iterrows():
-for index, row in df.iloc[1:1000].iterrows():
+for index, row in df.iloc[1000:2000].iterrows():
 
     if pd.notna(row[RESULT_COLUMN]):
         continue  # already processed
